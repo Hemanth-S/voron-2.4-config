@@ -4,15 +4,24 @@
 - Translates the pattern so it is centred on the 350 bed.
 - Replaces G10/G11 with explicit retract moves (the Voron has no [firmware_retraction]).
 - Rescales E from the SV08's EM 0.9475 to the Voron profile's EM 1.0.
-- Swaps temps to Silk PLA @Voron24, restores the config PA at the end.
+- Sets PRINT_START temps, optionally overrides the test acceleration, restores a given PA at the end.
 - Adds EXCLUDE_OBJECT_DEFINE so PRINT_START's adaptive mesh only covers the pattern.
+
+usage: adapt_ellis_pa.py SRC DST [--extruder 210] [--bed 60] [--accel 3000] [--pa-restore 0.0]
 """
-import re, sys
-src, dst = sys.argv[1], sys.argv[2]
+import argparse, re
+ap = argparse.ArgumentParser()
+ap.add_argument("src"); ap.add_argument("dst")
+ap.add_argument("--extruder", type=int, default=210)
+ap.add_argument("--bed", type=int, default=60)
+ap.add_argument("--accel", type=int, default=None, help="override SET_VELOCITY_LIMIT ACCEL (Ellis: perimeter accel)")
+ap.add_argument("--pa-restore", type=float, default=0.0, help="PA set after the test (match printer.cfg)")
+a = ap.parse_args()
+src, dst = a.src, a.dst
 DX = DY = 75.0
 E_SCALE = 1.0 / 0.9475
 RETRACT, F_RETRACT = 0.6, 2100
-PA_RESTORE = 0.055
+PA_RESTORE = a.pa_restore
 lines = open(src).read().splitlines()
 
 def shift(m):
@@ -24,7 +33,10 @@ for ln in lines:
     code, sep, cmt = ln.partition(';')
     c = code.strip()
     if c.startswith('PRINT_START'):
-        out.append("PRINT_START EXTRUDER=210 BED=60")
+        out.append(f"PRINT_START EXTRUDER={a.extruder} BED={a.bed}")
+        continue
+    if a.accel and c.startswith('SET_VELOCITY_LIMIT ACCEL='):
+        out.append(f"SET_VELOCITY_LIMIT ACCEL={a.accel} ; Set printing acceleration (overridden)")
         continue
     if c == 'G10':
         if first_g10:                       # PURGE_LINE already left the filament retracted
@@ -53,7 +65,7 @@ assert 30 <= x0 and x1 <= 350 and 25 <= y0 and y1 <= 350, (x0, x1, y0, y1)
 hdr = [
     "; ### Adapted for Voron 2.4 350 from pa_pattern_sv08_pla.gcode ###",
     f"; shifted X+{DX} Y+{DY}; G10/G11 -> E-/+{RETRACT} @ {F_RETRACT // 60} mm/s; E x{E_SCALE:.4f} (EM 0.9475 -> 1.0)",
-    "; Silk PLA 210/60; config PA 0.055 restored at end",
+    f"; PRINT_START {a.extruder}/{a.bed}; accel {a.accel or 'as generated'}; PA {PA_RESTORE} restored at end",
     f"EXCLUDE_OBJECT_DEFINE NAME=pa_pattern CENTER={(x0+x1)/2:.2f},{(y0+y1)/2:.2f} "
     f"POLYGON=[[{x0:.2f},{y0:.2f}],[{x1:.2f},{y0:.2f}],[{x1:.2f},{y1:.2f}],[{x0:.2f},{y1:.2f}]]",
 ]
