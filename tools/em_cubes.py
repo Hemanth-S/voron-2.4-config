@@ -20,8 +20,10 @@ import argparse, os, re, struct, subprocess, tempfile
 
 PS = "/Applications/Original Prusa Drivers/PrusaSlicer.app/Contents/MacOS/PrusaSlicer"
 CFG = os.path.expanduser("~/Library/Application Support/PrusaSlicer")
-CUBES = os.path.expanduser("~/Downloads/3D Printing/Tuning/Print-Tuning-Guide-main/test_prints/"
-                           "extrusion_multiplier_cubes/labeled/EM_0.8-1.2/EM_Cube-%.3f.stl")
+EMDIR = os.path.expanduser("~/Downloads/3D Printing/Tuning/Print-Tuning-Guide-main/test_prints/"
+                           "extrusion_multiplier_cubes")
+LABELLED = os.path.join(EMDIR, "labeled/EM_0.8-1.2/EM_Cube-%.3f.stl")
+UNLABELLED = os.path.join(EMDIR, "EM_Cube-Unlabeled.stl")
 # print-profile keys that segfault the PrusaSlicer 2.9 CLI
 BAD_PRINT_KEYS = ("bed_temperature_extruder", "wipe_tower_extruder")
 
@@ -31,6 +33,9 @@ ap.add_argument("--print", dest="print_", default="0.2mm 0.4nozzle @Voron24")
 ap.add_argument("--filament", required=True)
 ap.add_argument("--em", default="0.90,0.92,0.94,0.96,0.98,1.00,1.02")
 ap.add_argument("--out", required=True)
+ap.add_argument("--unlabelled", action="store_true",
+                help="plain cubes: the debossed number in the first layer can peel up on textured PEI; "
+                     "with one-at-a-time printing the grid position identifies the EM")
 a = ap.parse_args()
 ems = [float(x) for x in a.em.split(",")]
 assert len(ems) >= 1
@@ -47,13 +52,15 @@ with open(os.path.join(CFG, "print", a.print_ + ".ini")) as f, open(print_ini, "
 
 files = []
 for em, cx, cy in plan:
-    d = open(CUBES % em, "rb").read(); n = struct.unpack("<I", d[80:84])[0]
+    d = open(UNLABELLED if a.unlabelled else LABELLED % em, "rb").read(); n = struct.unpack("<I", d[80:84])[0]
+    vs = [struct.unpack("<fff", d[84 + i * 50 + 12 + v * 12:84 + i * 50 + 24 + v * 12]) for i in range(n) for v in range(3)]
+    mx = (min(v[0] for v in vs) + max(v[0] for v in vs)) / 2; my = (min(v[1] for v in vs) + max(v[1] for v in vs)) / 2
     out = bytearray(d[:84])
     for i in range(n):
         o = 84 + i * 50; out += d[o:o+12]
         for v in range(3):
             x, y, z = struct.unpack("<fff", d[o+12+v*12:o+24+v*12])
-            out += struct.pack("<fff", x + cx - 15, y + cy - 15, z)
+            out += struct.pack("<fff", x - mx + cx, y - my + cy, z)
         out += d[o+48:o+50]
     fn = os.path.join(tmp, f"EM_{int(round(em * 1000)):04d}.stl"); open(fn, "wb").write(out); files.append(fn)
 
@@ -80,7 +87,8 @@ for l in L:
 i = next(i for i, l in enumerate(out) if l.startswith("PRINT_END"))
 out[i:i] = ["M221 S100"]
 rows = " | ".join(f"Y{cy}: " + " ".join(f"{em:.2f}" for em, _, y in plan if y == cy) for cy in (70, 160, 250))
-hdr = [f"; ===== Ellis EM cubes ({a.filament}), labelled underside, ONE AT A TIME. Left->right {rows} =====",
+kind = "unlabelled (grid position = EM)" if a.unlabelled else "labelled underside"
+hdr = [f"; ===== Ellis EM cubes ({a.filament}), {kind}, ONE AT A TIME. Left->right {rows} =====",
        "; EM per cube via M221 (slicer EM from the filament profile). Infill 40%, bottom 2, top 10."]
 open(a.out, "w").write("\n".join(hdr + out))
 temps = re.search(r"^PRINT_START.*$", "\n".join(L), re.M).group(0)
