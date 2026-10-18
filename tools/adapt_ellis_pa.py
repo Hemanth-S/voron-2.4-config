@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Adapt an Ellis PA-tool file generated for the SV08 (200 mm bed) to the Voron 2.4 350.
+"""Adapt an Ellis PA-tool file to the Voron 2.4 350.
 
-- Translates the pattern so it is centred on the 350 bed.
-- Replaces G10/G11 with explicit retract moves (the Voron has no [firmware_retraction]).
-- Rescales E from the SV08's EM 0.9475 to the Voron profile's EM 1.0.
-- Sets PRINT_START temps, optionally overrides the test acceleration, restores a given PA at the end.
+- Translates the pattern (--shift; 75 for the original 200-mm-origin SV08 PLA file, 0 for files
+  generated for a 350 bed, e.g. PA_ASA_250_fl255_bed100.gcode).
+- Replaces G10/G11 with explicit retract moves, unless --keep-fw-retract (the Voron has had
+  [firmware_retraction] since 2026-10-12).
+- Rescales E from the source file's EM (--src-em) to the target EM (--em).
+- Sets PRINT_START temps (+ SOAK for hot beds), optionally overrides the test acceleration,
+  restores a given PA at the end.
 - Adds EXCLUDE_OBJECT_DEFINE so PRINT_START's adaptive mesh only covers the pattern.
 
-usage: adapt_ellis_pa.py SRC DST [--extruder 210] [--bed 60] [--accel 3000] [--pa-restore 0.0]
+usage: adapt_ellis_pa.py SRC DST [--extruder 210] [--bed 60] [--soak 0] [--accel 3000] [--pa-restore 0.0]
+                         [--shift 75] [--src-em 0.9475] [--em 1.0] [--keep-fw-retract]
 """
 import argparse, re
 ap = argparse.ArgumentParser()
@@ -16,10 +20,15 @@ ap.add_argument("--extruder", type=int, default=210)
 ap.add_argument("--bed", type=int, default=60)
 ap.add_argument("--accel", type=int, default=None, help="override SET_VELOCITY_LIMIT ACCEL (Ellis: perimeter accel)")
 ap.add_argument("--pa-restore", type=float, default=0.0, help="PA set after the test (match printer.cfg)")
+ap.add_argument("--soak", type=int, default=0, help="SOAK=<min> for PRINT_START")
+ap.add_argument("--shift", type=float, default=75.0, help="mm added to X and Y")
+ap.add_argument("--src-em", type=float, default=0.9475, help="EM the source file was generated with")
+ap.add_argument("--em", type=float, default=1.0, help="EM to print the pattern at")
+ap.add_argument("--keep-fw-retract", action="store_true", help="leave G10/G11 for [firmware_retraction]")
 a = ap.parse_args()
 src, dst = a.src, a.dst
-DX = DY = 75.0
-E_SCALE = 1.0 / 0.9475
+DX = DY = a.shift
+E_SCALE = a.em / a.src_em
 RETRACT, F_RETRACT = 0.6, 2100
 PA_RESTORE = a.pa_restore
 lines = open(src).read().splitlines()
@@ -33,10 +42,13 @@ for ln in lines:
     code, sep, cmt = ln.partition(';')
     c = code.strip()
     if c.startswith('PRINT_START'):
-        out.append(f"PRINT_START EXTRUDER={a.extruder} BED={a.bed}")
+        out.append(f"PRINT_START EXTRUDER={a.extruder} BED={a.bed}" + (f" SOAK={a.soak}" if a.soak else ""))
         continue
     if a.accel and c.startswith('SET_VELOCITY_LIMIT ACCEL='):
         out.append(f"SET_VELOCITY_LIMIT ACCEL={a.accel} ; Set printing acceleration (overridden)")
+        continue
+    if a.keep_fw_retract and c in ('G10', 'G11'):
+        out.append(ln)
         continue
     if c == 'G10':
         if first_g10:                       # PURGE_LINE already left the filament retracted
@@ -61,10 +73,11 @@ for ln in lines:
     out.append(ln)
 
 x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
-assert 30 <= x0 and x1 <= 350 and 25 <= y0 and y1 <= 350, (x0, x1, y0, y1)
+assert 0 <= x0 and x1 <= 350 and 0 <= y0 and y1 <= 300, (x0, x1, y0, y1)   # Y300: clear of the brush notch
 hdr = [
-    "; ### Adapted for Voron 2.4 350 from pa_pattern_sv08_pla.gcode ###",
-    f"; shifted X+{DX} Y+{DY}; G10/G11 -> E-/+{RETRACT} @ {F_RETRACT // 60} mm/s; E x{E_SCALE:.4f} (EM 0.9475 -> 1.0)",
+    f"; ### Adapted for Voron 2.4 350 from {src.split('/')[-1]} ###",
+    f"; shifted X+{DX} Y+{DY}; " + ("G10/G11 kept (firmware retraction)" if a.keep_fw_retract else
+        f"G10/G11 -> E-/+{RETRACT} @ {F_RETRACT // 60} mm/s") + f"; E x{E_SCALE:.4f} (EM {a.src_em} -> {a.em})",
     f"; PRINT_START {a.extruder}/{a.bed}; accel {a.accel or 'as generated'}; PA {PA_RESTORE} restored at end",
     f"EXCLUDE_OBJECT_DEFINE NAME=pa_pattern CENTER={(x0+x1)/2:.2f},{(y0+y1)/2:.2f} "
     f"POLYGON=[[{x0:.2f},{y0:.2f}],[{x1:.2f},{y0:.2f}],[{x1:.2f},{y1:.2f}],[{x0:.2f},{y1:.2f}]]",
