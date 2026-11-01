@@ -20,16 +20,22 @@ git apply ~/firmware/nitehawk-36/nitehawk-xosc-startup-64ms.patch
 cp ~/firmware/nitehawk-36/nitehawk.config .config && make olddefconfig && make -j4   # -> out/klipper.uf2
 ```
 
-First built 2026-10-31: v0.13.0-464-g48f0b3cad (same as the host).
+First built and flashed 2026-10-31: v0.13.0-464-g48f0b3cad (same as the host), serial
+`usb-Klipper_rp2040_3434343339138651`.
 
 ## Flash
 
 The board needs **24 V** (LDO adapter PCB powered from the PSU) for the hub to see it.
 
-- Board already runs Klipper over USB: `make flash FLASH_DEVICE=/dev/serial/by-id/usb-Klipper_rp2040_<id>-if00`
-  (in `~/klipper-nitehawk`).
-- New or unknown firmware: hold BOOT while powering up, so it appears as `2e8a:0003`, then
-  `make flash FLASH_DEVICE=2e8a:0003`.
+- Board already runs this build over USB (no Katapult on it): `make NOSUDO=1 flash
+  FLASH_DEVICE=/dev/serial/by-id/usb-Klipper_rp2040_3434343339138651-if00` (in `~/klipper-nitehawk`).
+  Klipper reboots it into the RP2040's ROM bootloader, so no button is needed.
+- **This board shipped from LDO with Katapult** (unlike the SV08's). A USB flash request then lands in
+  Katapult, whose protocol didn't answer our flash tools, and the no-bootloader image doesn't fit
+  Katapult's layout anyway. Fix used 2026-10-31: BOOT mode (hold BOOT, tap RESET) and
+  `make NOSUDO=1 flash FLASH_DEVICE=2e8a:0003`, which overwrites Katapult. No sudo needed.
+- New or unknown firmware: hold BOOT and tap RESET (or hold BOOT while powering up), so it appears
+  as `2e8a:0003`, then `make NOSUDO=1 flash FLASH_DEVICE=2e8a:0003`.
 
 Then `ls /dev/serial/by-id/` and put the `usb-Klipper_rp2040_...` path in `config/toolhead-xol.cfg`.
 
