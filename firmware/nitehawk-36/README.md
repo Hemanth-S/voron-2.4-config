@@ -39,6 +39,15 @@ The board needs **24 V** (LDO adapter PCB powered from the PSU) for the hub to s
 
 Then `ls /dev/serial/by-id/` and put the `usb-Klipper_rp2040_...` path in `config/toolhead-xol.cfg`.
 
+If the board shows up on USB (`lsusb`: `1d50:614e rp2040`) but Klipper gets "Timeout on connect", press
+RESET on the board. Unplugging and replugging the USB cable doesn't reset it, because it runs on the 24 V supply. On
+2026-10-31, after a loose USB plug had connected and dropped a few times, the board stayed stuck until RESET.
+
+On 2026-10-31 the board's hub ran at 12 Mbit/s (`lsusb -t`), not 480, after the toolhead cable was cut and
+re-soldered. There is no reading from before the splice to compare with. The link was clean anyway
+(0 invalid bytes, no drops). If USB errors show up once the Cartographer shares the hub, check the
+D+/D- joints first.
+
 If the board doesn't boot after flashing (no `rp2040` serial device even after RESET), the flash chip
 may differ from the SV08's: rebuild with `CONFIG_RP2040_FLASH_GENERIC_03=y` (BTT made the same
 change for its RP2040 boards in 2025) and flash again from BOOT mode.
