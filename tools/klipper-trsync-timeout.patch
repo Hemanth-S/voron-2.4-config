@@ -1,0 +1,13 @@
+diff --git a/klippy/mcu.py b/klippy/mcu.py
+index 507f77347..7f00a66a3 100644
+--- a/klippy/mcu.py
++++ b/klippy/mcu.py
+@@ -237,7 +237,7 @@ class MCU_trsync:
+             s.note_homing_end()
+         return params['trigger_reason']
+ 
+-TRSYNC_TIMEOUT = 0.025
++TRSYNC_TIMEOUT = 0.050
+ TRSYNC_SINGLE_MCU_TIMEOUT = 0.250
+ 
+ class TriggerDispatch:
